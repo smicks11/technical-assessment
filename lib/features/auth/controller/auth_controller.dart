@@ -1,19 +1,39 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/services/api_service.dart';
 import '../../../core/services/app_exceptions.dart';
-import '../../../core/services/auth_storage_service.dart';
 import '../../../core/state/app_loading.dart';
-import '../../../core/constants/api_constants.dart';
-import '../model/login_response.dart';
+import '../domain/usecases/check_auth_status_usecase.dart';
+import '../domain/usecases/clear_session_usecase.dart';
+import '../domain/usecases/fetch_user_usecase.dart';
+import '../domain/usecases/login_usecase.dart';
+import '../domain/usecases/logout_usecase.dart';
+import '../domain/usecases/register_usecase.dart';
 import '../model/register_request.dart';
 import '../model/user.dart';
 
 class AuthController extends ChangeNotifier {
-  AuthController(this._apiService, this._authStorage, this._appLoading);
+  AuthController({
+    required CheckAuthStatusUseCase checkAuthStatusUseCase,
+    required LoginUseCase loginUseCase,
+    required RegisterUseCase registerUseCase,
+    required LogoutUseCase logoutUseCase,
+    required FetchUserUseCase fetchUserUseCase,
+    required ClearSessionUseCase clearSessionUseCase,
+    required AppLoading appLoading,
+  })  : _checkAuthStatusUseCase = checkAuthStatusUseCase,
+        _loginUseCase = loginUseCase,
+        _registerUseCase = registerUseCase,
+        _logoutUseCase = logoutUseCase,
+        _fetchUserUseCase = fetchUserUseCase,
+        _clearSessionUseCase = clearSessionUseCase,
+        _appLoading = appLoading;
 
-  final ApiService _apiService;
-  final AuthStorageService _authStorage;
+  final CheckAuthStatusUseCase _checkAuthStatusUseCase;
+  final LoginUseCase _loginUseCase;
+  final RegisterUseCase _registerUseCase;
+  final LogoutUseCase _logoutUseCase;
+  final FetchUserUseCase _fetchUserUseCase;
+  final ClearSessionUseCase _clearSessionUseCase;
   final AppLoading _appLoading;
 
   User? _user;
@@ -59,21 +79,16 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> checkAuthStatus() async {
-    final token = await _authStorage.getToken();
-    final email = await _authStorage.getStoredEmail();
-    if (token == null || token.isEmpty) {
+    final status = await _checkAuthStatusUseCase();
+    _hasToken = status.hasToken;
+    _storedEmail = status.storedEmail;
+    if (!status.hasToken) {
       _user = null;
-      _hasToken = false;
       _isAppLocked = false;
-      _storedEmail = email ?? '';
-      _authChecked = true;
-      notifyListeners();
-      return;
+    } else {
+      _isAppLocked = true;
+      _user = null;
     }
-    _hasToken = true;
-    _isAppLocked = true;
-    _user = null;
-    _storedEmail = email ?? '';
     _authChecked = true;
     notifyListeners();
   }
@@ -84,22 +99,8 @@ class AuthController extends ChangeNotifier {
     _appLoading.show();
     _clearError();
     try {
-      final data = await _apiService.post<Map<String, dynamic>>(
-        ApiConstants.login,
-        data: {'email': email, 'password': password},
-      );
-      if (data == null) {
-        _setError('Invalid response from server');
-        return false;
-      }
-      final response = LoginResponse.fromJson(data);
-      if (response.token.isEmpty) {
-        _setError('Invalid response from server');
-        return false;
-      }
-      await _authStorage.saveToken(response.token);
-      await _authStorage.saveStoredEmail(email.trim());
-      _user = response.user;
+      final user = await _loginUseCase(email, password);
+      _user = user;
       _hasToken = true;
       _isAppLocked = false;
       _storedEmail = email.trim();
@@ -124,19 +125,9 @@ class AuthController extends ChangeNotifier {
     _appLoading.show();
     _clearError();
     try {
-      final data = await _apiService.post<Map<String, dynamic>>(
-        ApiConstants.register,
-        data: request.toJson(),
-      );
-      if (data == null) {
-        _setError('Invalid response from server');
-        return false;
-      }
-      final response = LoginResponse.fromJson(data);
-      if (response.token.isNotEmpty) {
-        await _authStorage.saveToken(response.token);
-        await _authStorage.saveStoredEmail(request.email.trim());
-        _user = response.user;
+      final user = await _registerUseCase(request);
+      if (user != null) {
+        _user = user;
         _hasToken = true;
         _isAppLocked = false;
         _storedEmail = request.email.trim();
@@ -161,11 +152,8 @@ class AuthController extends ChangeNotifier {
     _appLoading.show();
     _clearError();
     try {
-      await _apiService.post<dynamic>(ApiConstants.logout);
-    } on AppException catch (_) {
+      await _logoutUseCase();
     } finally {
-      await _authStorage.clearToken();
-      await _authStorage.clearStoredEmail();
       _user = null;
       _hasToken = false;
       _isAppLocked = false;
@@ -181,23 +169,11 @@ class AuthController extends ChangeNotifier {
     _appLoading.show();
     _clearError();
     try {
-      final data = await _apiService.get<Map<String, dynamic>>(ApiConstants.user);
-      if (data == null) {
-        return;
-      }
-      final rawUser = data['user'];
-      final userJson = rawUser is Map
-          ? Map<String, dynamic>.from(rawUser)
-          : data;
-      _user = User.fromJson(userJson);
+      final user = await _fetchUserUseCase();
+      _user = user;
       notifyListeners();
     } on AppException catch (e) {
-      if (e is UnauthorizedException) {
-        await _authStorage.clearToken();
-        _user = null;
-      } else {
-        _setError(e.message);
-      }
+      _setError(e.message);
       notifyListeners();
     } catch (_) {
       _setError('Invalid response from server');
@@ -230,8 +206,7 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> clearSession() async {
-    await _authStorage.clearToken();
-    await _authStorage.clearStoredEmail();
+    await _clearSessionUseCase();
     _user = null;
     _hasToken = false;
     _isAppLocked = false;

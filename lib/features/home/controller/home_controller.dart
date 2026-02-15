@@ -1,15 +1,26 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/services/api_service.dart';
 import '../../../core/services/app_exceptions.dart';
 import '../../../core/state/app_loading.dart';
-import '../../../core/constants/api_constants.dart';
 import '../../auth/model/user.dart';
+import '../domain/usecases/credit_account_usecase.dart';
+import '../domain/usecases/debit_account_usecase.dart';
+import '../domain/usecases/get_user_usecase.dart';
 
 class HomeController extends ChangeNotifier {
-  HomeController(this._apiService, this._appLoading);
+  HomeController({
+    required GetUserUseCase getUserUseCase,
+    required CreditAccountUseCase creditAccountUseCase,
+    required DebitAccountUseCase debitAccountUseCase,
+    required AppLoading appLoading,
+  })  : _getUserUseCase = getUserUseCase,
+        _creditAccountUseCase = creditAccountUseCase,
+        _debitAccountUseCase = debitAccountUseCase,
+        _appLoading = appLoading;
 
-  final ApiService _apiService;
+  final GetUserUseCase _getUserUseCase;
+  final CreditAccountUseCase _creditAccountUseCase;
+  final DebitAccountUseCase _debitAccountUseCase;
   final AppLoading _appLoading;
 
   User? _user;
@@ -29,15 +40,8 @@ class HomeController extends ChangeNotifier {
     _appLoading.show();
     _clearError();
     try {
-      final data = await _apiService.get<Map<String, dynamic>>(ApiConstants.user);
-      if (data == null) {
-        return;
-      }
-      final rawUser = data['user'];
-      final userJson = rawUser is Map
-          ? Map<String, dynamic>.from(rawUser)
-          : data;
-      _user = User.fromJson(userJson);
+      final user = await _getUserUseCase();
+      _user = user;
       notifyListeners();
     } on AppException catch (e) {
       _setError(e.message);
@@ -63,10 +67,7 @@ class HomeController extends ChangeNotifier {
     _appLoading.show();
     _clearError();
     try {
-      await _apiService.post<Map<String, dynamic>>(
-        ApiConstants.accountCredit,
-        data: {'amount': amount},
-      );
+      await _creditAccountUseCase(amount);
       if (_user != null) {
         final newBalance = (_user!.balance ?? 0) + amount;
         _user = _user!.copyWith(balance: newBalance);
@@ -105,10 +106,7 @@ class HomeController extends ChangeNotifier {
     _appLoading.show();
     _clearError();
     try {
-      await _apiService.post<Map<String, dynamic>>(
-        ApiConstants.accountDebit,
-        data: {'amount': amount},
-      );
+      await _debitAccountUseCase(amount);
       if (_user != null) {
         final newBalance = (_user!.balance ?? 0) - amount;
         _user = _user!.copyWith(balance: newBalance);
