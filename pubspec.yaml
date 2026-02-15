@@ -1,0 +1,29 @@
+name: technical_assesment
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.8
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  dio: ^5.4.3+1
+  logger: ^2.6.2
+  shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.2.2
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
